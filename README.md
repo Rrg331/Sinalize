@@ -39,6 +39,8 @@ Este trabalho apresenta a implementação de um modelo preditivo para antecipaç
 │   └── rf/                    # Modelos treinados
 ├── requirements.txt
 ├── README.md
+└── SINALIZE-modelo-de-previsao-de\ falhas-em-transformadores-do-SIN.pd # PDF DO ARTIGO da disciplina 
+
 ```
 
 ## Como Usar
