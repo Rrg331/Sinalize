@@ -10,8 +10,8 @@ Este trabalho apresenta a implementação de um modelo preditivo para antecipaç
 
 - Prever falhas em transformadores da rede básica do SIN
 - Otimizar estratégias de manutenção preventiva
-- Reduzir custos operacionais e melhorar confiabilidade
-- Fornecer rankings de risco para priorização de recursos
+- Reduzir custos operacionais e melhorar confiabilidade do sistema 
+- Fornecer rankings de risco para priorização de recursos de manutenção de equipamentos
 
 ## Tecnologias Utilizadas
 
@@ -21,6 +21,7 @@ Este trabalho apresenta a implementação de um modelo preditivo para antecipaç
 - **Flask** para API REST
 - **Pandas** para manipulação de dados
 - **NumPy** para computação numérica
+- **Pytest** para testes unitários
 
 
 ## Estrutura do Projeto
@@ -30,7 +31,7 @@ Este trabalho apresenta a implementação de um modelo preditivo para antecipaç
 │   ├── 01-preparar-dados-preditivo.py
 │   ├── 02-treinar-modelo-preditivo.py
 │   ├── 03-api-teste-modelo.py
-│   └── provenance.ttl
+│   └── provenance.ttl  # modelo de data provenance 
 ├── data/
 │   ├── raw/                   # Dados brutos
 │   └── gold/                  # Dados processados
@@ -72,6 +73,9 @@ python 03-api-teste-modelo.py
 A API estará disponível em `http://localhost:5001`
 
 
-## Licença
+## Trabalhos futuros 
 
-Este projeto está sob licença MIT. Veja o arquivo [LICENSE](LICENSE) para detalhes.
+Integração com dados de meteorologia já disponíveis no repositório para criar feature de sazonalidades
+Integração com dados de queimadas para criar features  de impactos de queimadas sazonais
+Criação de  feature de manobras de equipamentos utilizando dados de supervisão atuais
+
