@@ -6,6 +6,9 @@
 
 Este trabalho apresenta a implementação de um modelo preditivo para antecipação de falhas em transformadores da rede básica do Sistema Interligado Nacional (SIN). Utilizando algoritmos de Random Forest e técnicas de balanceamento de dados, a ferramenta, denominada **SINALIZE**, foi capaz de prever falhas em diferentes horizontes temporais, com base em características históricas de manutenção, falhas e utilização dos equipamentos, demonstrando a viabilidade da aplicação de técnicas de aprendizado de máquina para manutenção preditiva em sistemas elétricos de potência, contribuindo para a melhoria da confiabilidade, segurança e redução de custos operacionais.
 
+Link para o artigo:
+[SINALIZE - Modelo de previsão de falhas em transformadores do SIN (PDF)](SINALIZE-modelo-de-previsao-de%20falhas-em-transformadores-do-SIN.pd)
+
 ## Objetivos
 
 - Prever falhas em transformadores da rede básica do SIN
