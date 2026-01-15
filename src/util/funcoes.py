@@ -1,10 +1,10 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime
 from glob import glob
 from datetime import datetime, timedelta
-import sys
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 #obtém os dados brutos 
 #filtra os dados para manter apenas os equipamentos que possuem tanto falhas quanto manutenções registradas
@@ -29,40 +29,17 @@ def obterdadosraw():
 
     print('carregando arquivos raw [limites.csv]...')
     limites = pd.read_csv('../data/raw/limites.csv', sep=';', header=None , names=['id_equipamento', 'limite'] , dtype={'limite': np.float64} )
-    print(f'falhas.csv carregado com sucesso  {len(falhas)} registros!')
+    print(f'limites.csv carregado com sucesso  {len(limites)} registros!')
 
 
     #endregion
       
 
     #region DADOS de UTILIZAÇÃO (carga)
-    utilizacao = {}
-    arquivos_utilizacao = glob('../data/raw/utilizacao_transformadores/*.csv') #todo: ver algo mais performático
-
-    i=1
-    for  arquivo in arquivos_utilizacao:
-
-        print(f'processando arquivo: {arquivo} {i} de {len(arquivos_utilizacao)} arquivos')
-        id_equipamento = os.path.basename(arquivo).replace('.csv', '')       
-
-        df_util = pd.read_csv(arquivo, sep=';', header=None, names=['timestamp', 'valor'], parse_dates=['timestamp'], dayfirst=False , dtype={'valor': np.float64} )
-
-        df_util = df_util.dropna() #limpa colunas sem valor
-
-        utilizacao[id_equipamento] = df_util
-        print(f'arquivo processado com sucesso!')
-        i+=1             
-    
+    utilizacao = carregar_dados_utilizacao()
     #endregion
 
     return falhas, manutencao, transformadores, utilizacao, limites 
-
-  
-    
-
-#falhas, manutencao, transformadores, utilizacao, limites, janela_previsao j
-
-
 
 def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, janela_previsao):   
 
@@ -99,7 +76,7 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
         #region features manutencao 
         manut_equip = manutencao[
             (manutencao['id_equipamento'] == equip_id) &
-            (manutencao['inicio'] >= data_referencia)
+            (manutencao['inicio'] < data_referencia)
         ]
 
         num_manutencoes = len(manut_equip)
@@ -116,10 +93,12 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
         
         ultima_manut = manut_equip['inicio'].max()
 
-        dias_desde_manut = (data_referencia - ultima_manut).days
-
-        if dias_desde_manut < 0:
+        if pd.isna(ultima_manut):
             dias_desde_manut = 0
+        else:
+            dias_desde_manut = (data_referencia - ultima_manut).days
+            if dias_desde_manut < 0:
+                dias_desde_manut = 0
 
 
         #endregion
@@ -127,19 +106,20 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
         #region features  falhas 
         falhas_historicas = falhas[
             (falhas['id_equipamento'] == equip_id) &
-            (falhas['inicio'] >= data_referencia)
+            (falhas['inicio'] < data_referencia)
         ]
 
         num_falhas = len(falhas_historicas)
-
-        taxa_falhas = num_falhas / (idade / 365) 
-
         minutos_falha = falhas_historicas['duracao'].sum()
 
-        taxa_minutos_falha = minutos_falha / (idade / 365)
-        
-   
 
+        if idade > 0 :
+            taxa_falhas = num_falhas / (idade / 365) 
+            taxa_minutos_falha = minutos_falha / (idade / 365)
+
+        else:
+            taxa_falhas = 0
+            taxa_minutos_falha = 0
 
 
         falhasjanela = falhas[
@@ -164,23 +144,22 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
         
 
         dadosutilizacao = dfutilizacao[
-            (dfutilizacao['timestamp'] >= data_referencia) &
-            (dfutilizacao['timestamp'] < data_maxima_dados)
+            (dfutilizacao['timestamp'] < data_referencia)
         ]
 
         medidas = dadosutilizacao['valor']
          
-        if limite_pot.any() and limite_pot > 0:
-            sobrecargas = (medidas > limite_pot).count()
+        if limite_pot > 0:
+            sobrecargas = (medidas > limite_pot).sum()
         else:
             sobrecargas = 0
 
         
         features_utilizacao =  {
-            'utilizacao_media': medidas.mean(),
-            'utilizacao_maxima': medidas.max(),
-            'utilizacao_minima': medidas.min(),
-            'utilizacao_desvio': medidas.std(),
+            'utilizacao_media': medidas.mean() if len(medidas) > 0 else 0,
+            'utilizacao_maxima': medidas.max() if len(medidas) > 0 else 0,
+            'utilizacao_minima': medidas.min() if len(medidas) > 0 else 0,
+            'utilizacao_desvio': medidas.std() if len(medidas) > 1 else 0,
             'qtd_sobrecargas': sobrecargas,
             'dias_com_dados_util': len(dadosutilizacao['timestamp'].dt.date.unique())
         } 
@@ -213,6 +192,36 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
     
     return pd.DataFrame(features_list)
 
+def carregar_dados_utilizacao():
+    arquivos_utilizacao = glob('../data/raw/utilizacao_transformadores/*.csv')
+    total = len(arquivos_utilizacao)
+    
+    print(f'Carregando {total} arquivos de utilização em paralelo...')
+    
+    utilizacao = {}
+    
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(carregar_arquivo_utilizacao, arq): arq for arq in arquivos_utilizacao}
+        
+        for i, future in enumerate(as_completed(futures), 1):
+            id_equip, df = future.result()
+            utilizacao[id_equip] = df
+            
+            if i % 100 == 0:
+                print(f'Processados {i}/{total} arquivos ({i/total*100:.1f}%)')
+    
+    print(f'Todos os {total} arquivos de utilização carregados com sucesso!')
+    return utilizacao
 
+def carregar_arquivo_utilizacao(arquivo):
+    id_equipamento = os.path.basename(arquivo).replace('.csv', '')
+    df_util = pd.read_csv(
+        arquivo, sep=';', header=None, 
+        names=['timestamp', 'valor'], 
+        parse_dates=['timestamp'], 
+        dayfirst=False, 
+        dtype={'valor': np.float64}
+    )
+    return id_equipamento, df_util.dropna()
 
 

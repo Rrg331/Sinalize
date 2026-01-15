@@ -60,6 +60,11 @@ pip install -r requirements.txt
 
 ### 2. Preparar Dados
 
+Como o tamanho dos arquivos de dados de carga excedem o limite do github, foi criado um google drive. Os arquivos devem ser salvos na pasta data/raw/utilizacao_transformadores
+
+[utilizacao_transformadores]
+(https://drive.google.com/drive/folders/12_TsW_Rv0XLwyPQNMqY1Woj2FFgHfLlC)
+
 ```bash
 cd src
 python 01-preparar-dados-preditivo.py

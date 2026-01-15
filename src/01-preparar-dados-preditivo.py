@@ -4,8 +4,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import sys
-import os
-from glob import glob
 from util.funcoes import obterdadosraw, criarfeatures
 
 
@@ -22,7 +20,7 @@ print('dados brutos carregados!')
 if len(sys.argv) > 1:
     periodos = [int(d) for d in sys.argv[1].split(',')]
 else:
-    periodos = [30] #30 a 90 dias 
+    periodos = [30,35,40,45,50, 55, 60,65,70,75,80,85,90]
 
 
 

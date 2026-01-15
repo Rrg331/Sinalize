@@ -15,7 +15,7 @@ else:
 feature_names = ['idade_dias', 'num_manutencoes', 'intervalo_medio_manut', 
                  'num_falhas_historico', 'taxa_falhas_ano', 'minutos_falha_historico', 'taxa_minutos_falha_ano',
                  'dias_desde_ultima_manut', 'limite_potencia',
-                 'utilizacao_media', 'utilizacao_maxima', 'utilizacao_minima', 'qtd_sobrecargas']
+                 'utilizacao_media', 'utilizacao_maxima', 'utilizacao_minima', 'utilizacao_desvio', 'qtd_sobrecargas']
 
 resultados = []
 resumo_dados = []
@@ -134,6 +134,11 @@ df_importancias = pd.DataFrame(importancias_todas)
 print(df_importancias.to_string(index=False, float_format=lambda x: f'{x:.4f}' if isinstance(x, float) else str(x)))
 df_importancias.to_csv('../data/gold/importancias_features.csv', index=False)
 print("\nImportâncias salvas em: ../data/gold/importancias_features.csv")
+
+# Salvar métricas de performance para análise no notebook
+df_resultados.to_csv('../data/gold/metricas_performance.csv', index=False)
+print("\nMétricas de performance salvas em: ../data/gold/metricas_performance.csv")
+
 print('='*90)
 print(f"Tempo total: {pd.Timestamp.now() - inicio}")
 print("Modelos salvos em: ../models/rf/")
