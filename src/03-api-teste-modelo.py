@@ -2,20 +2,28 @@ from flask import Flask, request, jsonify
 import joblib
 import pandas as pd
 import numpy as np
+import os
 
 app = Flask(__name__)
 
-modelos = {
-    30: joblib.load('../models/rf/preditivo_30d.pkl'),
-    55: joblib.load('../models/rf/preditivo_55d.pkl'),
-    90: joblib.load('../models/rf/preditivo_90d.pkl'),
-    120: joblib.load('../models/rf/preditivo_120d.pkl')
-}
+# Carregar modelos disponíveis dinamicamente
+modelos = {}
+periodos_disponiveis = [30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90]
+for periodo in periodos_disponiveis:
+    modelo_path = f'../models/rf/preditivo_{periodo}d.pkl'
+    if os.path.exists(modelo_path):
+        modelos[periodo] = joblib.load(modelo_path)
+        print(f"Modelo {periodo}d carregado")
+
+if not modelos:
+    raise FileNotFoundError("Nenhum modelo encontrado. Execute 02-treinar-modelo-preditivo.py primeiro.")
+
+print(f"\nAPI pronta com {len(modelos)} modelos: {sorted(modelos.keys())}")
 
 FEATURE_COLS = ['idade_dias', 'num_manutencoes', 'intervalo_medio_manut',
                 'num_falhas_historico', 'taxa_falhas_ano', 'minutos_falha_historico', 
                 'taxa_minutos_falha_ano', 'dias_desde_ultima_manut', 'limite_potencia',
-                'utilizacao_media', 'utilizacao_maxima', 'utilizacao_minima', 'qtd_sobrecargas']
+                'utilizacao_media', 'utilizacao_maxima', 'utilizacao_minima', 'utilizacao_desvio', 'qtd_sobrecargas']
 
 @app.route('/prever_falha', methods=['POST'])
 def prever_falha():
@@ -27,7 +35,7 @@ def prever_falha():
     required_features = ['idade_dias', 'num_manutencoes', 'intervalo_medio_manut',
                          'num_falhas_historico', 'taxa_falhas_ano', 'minutos_falha_historico', 
                          'taxa_minutos_falha_ano', 'dias_desde_ultima_manut', 'limite_potencia',
-                         'utilizacao_media', 'utilizacao_maxima', 'utilizacao_minima', 'qtd_sobrecargas']
+                         'utilizacao_media', 'utilizacao_maxima', 'utilizacao_minima', 'utilizacao_desvio', 'qtd_sobrecargas']
     required = ['id_equipamento'] + required_features
     missing = [f for f in required if f not in data]
     if missing:
@@ -38,7 +46,7 @@ def prever_falha():
     except Exception as e:
         return jsonify({'error': f'Erro ao processar features: {str(e)}'}), 400
     
-    periodos = data.get('periodos', [30, 55, 90, 120])
+    periodos = data.get('periodos', sorted(modelos.keys()))
     previsoes = []
     
     for periodo in periodos:
@@ -67,5 +75,47 @@ def prever_falha():
 
 
 
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({
+        'status': 'ok',
+        'modelos_disponiveis': sorted(modelos.keys()),
+        'total_modelos': len(modelos)
+    })
+
+@app.route('/info', methods=['GET'])
+def info():
+    return jsonify({
+        'periodos_disponiveis': sorted(modelos.keys()),
+        'features_requeridas': FEATURE_COLS,
+        'exemplo_request': {
+            'id_equipamento': 'TR-001',
+            'idade_dias': 3650,
+            'num_manutencoes': 5,
+            'intervalo_medio_manut': 730,
+            'num_falhas_historico': 2,
+            'taxa_falhas_ano': 0.5,
+            'minutos_falha_historico': 120,
+            'taxa_minutos_falha_ano': 30,
+            'dias_desde_ultima_manut': 180,
+            'limite_potencia': 100,
+            'utilizacao_media': 75.5,
+            'utilizacao_maxima': 95.0,
+            'utilizacao_minima': 50.0,
+            'utilizacao_desvio': 12.3,
+            'qtd_sobrecargas': 3,
+            'periodos': [30, 60, 90]
+        }
+    })
+
 if __name__ == '__main__':
+    print("\n" + "="*60)
+    print("SINALIZE - API de Previsão de Falhas")
+    print("="*60)
+    print(f"Servidor: http://localhost:5001")
+    print(f"Endpoints:")
+    print(f"  POST /prever_falha - Realizar previsão")
+    print(f"  GET  /health       - Status da API")
+    print(f"  GET  /info         - Informações e exemplo")
+    print("="*60 + "\n")
     app.run(debug=True, port=5001)
