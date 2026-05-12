@@ -6,16 +6,22 @@ from imblearn.over_sampling import SMOTE
 import joblib
 import sys
 import numpy as np
+import gc
+import os
+
+MODELS_DIR = '../models/rf'
+os.makedirs(MODELS_DIR, exist_ok=True)
 
 if len(sys.argv) > 1:
     periodos = [int(d) for d in sys.argv[1].split(',')]
 else:
     periodos = [30,35,40,45,50, 55, 60,65,70,75,80,85,90]
 
-feature_names = ['idade_dias', 'num_manutencoes', 'intervalo_medio_manut', 
+feature_names = ['idade_dias', 'num_manutencoes', 'intervalo_medio_manut',
                  'num_falhas_historico', 'taxa_falhas_ano', 'minutos_falha_historico', 'taxa_minutos_falha_ano',
-                 'dias_desde_ultima_manut', 'limite_potencia',
-                 'utilizacao_media', 'utilizacao_maxima', 'utilizacao_minima', 'utilizacao_desvio', 'qtd_sobrecargas']
+                 'dias_desde_ultima_falha', 'dias_desde_ultima_manut', 'limite_potencia',
+                 'utilizacao_media', 'utilizacao_maxima', 'utilizacao_minima', 'utilizacao_desvio', 'taxa_sobrecargas_ano',
+                 'p90_utilizacao', 'delta_utilizacao', 'utilizacao_tendencia_90d', 'dias_acima_80pct_limite']
 
 resultados = []
 resumo_dados = []
@@ -23,7 +29,7 @@ importancias_todas = []
 inicio = pd.Timestamp.now()
 
 for periodo in periodos:
-    print(f"Treinando modelo PREDITIVO para {periodo} dias no futuro")
+    print(f"Treinando modelo para {periodo} dias no futuro")
 
     print("Carregando dados de features...")    
     df = pd.read_csv(f'../data/gold/features_preditivo_{periodo}d.csv')
@@ -64,7 +70,7 @@ for periodo in periodos:
     rf = RandomForestClassifier(random_state=42, class_weight='balanced')
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     #otimização com grid search
-    grid = GridSearchCV(rf, param_grid, cv=cv, scoring='roc_auc', n_jobs=-1, verbose=0)
+    grid = GridSearchCV(rf, param_grid, cv=cv, scoring='roc_auc', n_jobs=1, verbose=0)
     grid.fit(X_train_bal, y_train_bal)
     
     model = grid.best_estimator_
@@ -90,14 +96,14 @@ for periodo in periodos:
             'Importancia': row['Importancia']
         })
     
-    print("\nImportância das Features:")
+    print("Importância das Features:")
     print(importancias.to_string(index=False, float_format=lambda x: f'{x:.4f}'))
     
-    print(f"\nMétricas TREINO - tem que dar 100%:")
-    print(f"  ROC-AUC: {roc_auc_score(y_train, y_train_proba):.3f}")
-    print(f"  Accuracy: {accuracy_score(y_train, y_train_pred):.3f}")
+    print(f"Métricas TREINO - tem que dar 100%:")
+    print(f"ROC-AUC: {roc_auc_score(y_train, y_train_proba):.3f}")
+    print(f"Accuracy: {accuracy_score(y_train, y_train_pred):.3f}")
     
-    print(f"\nMétricas TESTE - métrica real:")
+    print(f"Métricas TESTE - métrica real:")
     print(classification_report(y_test, y_pred, target_names=['OK', 'FALHA']))
     
     resultados.append({
@@ -111,7 +117,11 @@ for periodo in periodos:
         '% Falhas': y.sum()/len(y)*100
     })
     
-    joblib.dump(model, f'../models/rf/preditivo_{periodo}d.pkl')
+    joblib.dump(model, f'{MODELS_DIR}/preditivo_{periodo}d.pkl')
+
+    del model, grid, X, y, X_train_bal, y_train_bal, X_train, X_test, y_train, y_test, df
+    gc.collect()
+    print(f"Memória liberada após período {periodo}d")
 
 print(f"\n{'='*90}")
 print("RESUMO DOS DADOS POR PERÍODO")
@@ -141,5 +151,5 @@ print("\nMétricas de performance salvas em: ../data/gold/metricas_performance.c
 
 print('='*90)
 print(f"Tempo total: {pd.Timestamp.now() - inicio}")
-print("Modelos salvos em: ../models/rf/")
+print(f"Modelos salvos em: {MODELS_DIR}")
 

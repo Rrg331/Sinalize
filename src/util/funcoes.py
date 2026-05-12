@@ -112,9 +112,16 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
         num_falhas = len(falhas_historicas)
         minutos_falha = falhas_historicas['duracao'].sum()
 
+        ultima_falha = falhas_historicas['inicio'].max()
+        if pd.isna(ultima_falha):
+            dias_desde_falha = -1  # -1 indica que nunca falhou
+        else:
+            dias_desde_falha = (data_referencia - ultima_falha).days
+            if dias_desde_falha < 0:
+                dias_desde_falha = 0
 
         if idade > 0 :
-            taxa_falhas = num_falhas / (idade / 365) 
+            taxa_falhas = num_falhas / (idade / 365)
             taxa_minutos_falha = minutos_falha / (idade / 365)
 
         else:
@@ -133,37 +140,74 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
         #endregion
 
         
-        #region features utilização 
-        
-         
+        #region features utilização
+
+
         dfutilizacao = utilizacao.get(equip_id)
 
         if dfutilizacao is None or dfutilizacao.empty:
             print('Aviso: Dados de utilização não encontrados para o equipamento:', equip_id    )
             continue
-        
+
 
         dadosutilizacao = dfutilizacao[
             (dfutilizacao['timestamp'] < data_referencia)
         ]
 
         medidas = dadosutilizacao['valor']
-         
+
         if limite_pot > 0:
             sobrecargas = (medidas > limite_pot).sum()
         else:
             sobrecargas = 0
 
-        
+        taxa_sobrecargas = sobrecargas / (idade / 365) if idade > 0 else 0
+
+        # --- Features de tendência ---
+        ultimos_90d = dadosutilizacao[
+            dadosutilizacao['timestamp'] >= (data_referencia - timedelta(days=90))
+        ]
+
+        # p90: percentil 90 da utilização histórica
+        p90_util = float(np.percentile(medidas, 90)) if len(medidas) > 0 else 0.0
+
+        # delta: média recente (últimos 90d) vs média histórica
+        if len(ultimos_90d) > 0 and len(medidas) > 0:
+            delta_util = float(ultimos_90d['valor'].mean() - medidas.mean())
+        else:
+            delta_util = 0.0
+
+        # tendência: inclinação da regressão linear nos últimos 90 dias
+        if len(ultimos_90d) >= 2:
+            t0 = ultimos_90d['timestamp'].min()
+            x_trend = (ultimos_90d['timestamp'] - t0).dt.days.values.astype(float)
+            y_trend = ultimos_90d['valor'].values
+            tendencia = float(np.polyfit(x_trend, y_trend, 1)[0]) if x_trend.std() > 0 else 0.0
+        else:
+            tendencia = 0.0
+
+        # dias acima de 80% do limite (média diária)
+        if limite_pot > 0 and len(dadosutilizacao) > 0:
+            daily_mean = dadosutilizacao.copy()
+            daily_mean['data'] = daily_mean['timestamp'].dt.date
+            daily_mean = daily_mean.groupby('data')['valor'].mean()
+            dias_acima_80 = int((daily_mean > 0.8 * limite_pot).sum())
+        else:
+            dias_acima_80 = 0
+
         features_utilizacao =  {
             'utilizacao_media': medidas.mean() if len(medidas) > 0 else 0,
             'utilizacao_maxima': medidas.max() if len(medidas) > 0 else 0,
             'utilizacao_minima': medidas.min() if len(medidas) > 0 else 0,
             'utilizacao_desvio': medidas.std() if len(medidas) > 1 else 0,
-            'qtd_sobrecargas': sobrecargas,
+            'taxa_sobrecargas_ano': taxa_sobrecargas,
+            'p90_utilizacao': p90_util,
+            'delta_utilizacao': delta_util,
+            'utilizacao_tendencia_90d': tendencia,
+            'dias_acima_80pct_limite': dias_acima_80,
             'dias_com_dados_util': len(dadosutilizacao['timestamp'].dt.date.unique())
-        } 
-        
+        }
+
         #endregion
         
         features = {
@@ -175,13 +219,18 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
             'taxa_falhas_ano': taxa_falhas,
             'minutos_falha_historico': minutos_falha,
             'taxa_minutos_falha_ano': taxa_minutos_falha,
+            'dias_desde_ultima_falha': dias_desde_falha,
             'dias_desde_ultima_manut': dias_desde_manut,
             'limite_potencia': limite_pot,
             'utilizacao_media': features_utilizacao.get('utilizacao_media', 0),
             'utilizacao_maxima': features_utilizacao.get('utilizacao_maxima', 0),
             'utilizacao_minima': features_utilizacao.get('utilizacao_minima', 0),
             'utilizacao_desvio': features_utilizacao.get('utilizacao_desvio', 0),
-            'qtd_sobrecargas': features_utilizacao.get('qtd_sobrecargas', 0),
+            'taxa_sobrecargas_ano': features_utilizacao.get('taxa_sobrecargas_ano', 0),
+            'p90_utilizacao': features_utilizacao.get('p90_utilizacao', 0),
+            'delta_utilizacao': features_utilizacao.get('delta_utilizacao', 0),
+            'utilizacao_tendencia_90d': features_utilizacao.get('utilizacao_tendencia_90d', 0),
+            'dias_acima_80pct_limite': features_utilizacao.get('dias_acima_80pct_limite', 0),
             'dias_com_dados_util': features_utilizacao.get('dias_com_dados_util', 0),
             'vai_falhar': vai_falhar
         }
@@ -200,7 +249,7 @@ def carregar_dados_utilizacao():
     
     utilizacao = {}
     
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {executor.submit(carregar_arquivo_utilizacao, arq): arq for arq in arquivos_utilizacao}
         
         for i, future in enumerate(as_completed(futures), 1):

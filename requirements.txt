@@ -1,5 +1,6 @@
 pandas
 numpy
 scikit-learn
+imbalanced-learn
 joblib
 flask
