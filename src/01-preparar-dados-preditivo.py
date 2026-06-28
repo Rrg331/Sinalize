@@ -5,6 +5,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import sys
 from util.funcoes import obterdadosraw, criarfeatures
+from util.config import PERIODOS
 
 
 
@@ -17,10 +18,7 @@ print('dados brutos carregados!')
 
 
 # Parâmetros
-if len(sys.argv) > 1:
-    periodos = [int(d) for d in sys.argv[1].split(',')]
-else:
-    periodos = [30,35,40,45,50, 55, 60,65,70,75,80,85,90]
+periodos = [int(d) for d in sys.argv[1].split(',')] if len(sys.argv) > 1 else PERIODOS
 
 
 

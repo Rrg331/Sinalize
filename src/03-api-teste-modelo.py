@@ -3,15 +3,17 @@ import joblib
 import pandas as pd
 import numpy as np
 import os
+from util.config import PERIODOS, FEATURE_NAMES
 
 app = Flask(__name__)
 
-# Carregar modelos disponíveis dinamicamente — RF e XGBoost
-TIPOS_MODELO = ['rf', 'xgb']
-periodos_disponiveis = [30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90]
+# Modelos base carregados de disco; 'ensemble' é calculado em tempo de execução (RF + XGBoost)
+TIPOS_MODELO = ['rf', 'xgb', 'rf_cal', 'ensemble']
+MODELOS_DISCO = ['rf', 'xgb', 'rf_cal']
+periodos_disponiveis = PERIODOS
 
 modelos = {tipo: {} for tipo in TIPOS_MODELO}
-for tipo in TIPOS_MODELO:
+for tipo in MODELOS_DISCO:
     for periodo in periodos_disponiveis:
         path = f'../models/{tipo}/preditivo_{periodo}d.pkl'
         if os.path.exists(path):
@@ -21,11 +23,18 @@ for tipo in TIPOS_MODELO:
 if not modelos['rf']:
     raise FileNotFoundError("Nenhum modelo RF encontrado. Execute 02-treinar-modelo-preditivo.py primeiro.")
 
-# Carregar thresholds otimizados para cada tipo
+# Arquivos de threshold por tipo: ensemble usa thresholds.csv (médias RF+XGBoost)
+THRESHOLD_FILES = {
+    'rf':       '../data/gold/thresholds_rf.csv',
+    'xgb':      '../data/gold/thresholds_xgb.csv',
+    'rf_cal':   '../data/gold/thresholds_rf_cal.csv',
+    'ensemble': '../data/gold/thresholds.csv',
+}
+
 thresholds = {}
 for tipo in TIPOS_MODELO:
-    path = f'../data/gold/thresholds_{tipo}.csv'
-    if os.path.exists(path):
+    path = THRESHOLD_FILES.get(tipo, '')
+    if path and os.path.exists(path):
         df_thr = pd.read_csv(path).set_index('periodo_dias')
         thresholds[tipo] = df_thr.to_dict(orient='index')
         print(f"Thresholds {tipo.upper()} carregados para {len(thresholds[tipo])} horizontes")
@@ -35,11 +44,7 @@ for tipo in TIPOS_MODELO:
 
 print(f"\nAPI pronta com {len(modelos)} modelos: {sorted(modelos.keys())}")
 
-FEATURE_COLS = ['idade_dias', 'num_manutencoes', 'intervalo_medio_manut',
-                'num_falhas_historico', 'taxa_falhas_ano', 'minutos_falha_historico',
-                'taxa_minutos_falha_ano', 'dias_desde_ultima_falha', 'dias_desde_ultima_manut', 'limite_potencia',
-                'utilizacao_media', 'utilizacao_maxima', 'utilizacao_minima', 'utilizacao_desvio', 'taxa_sobrecargas_ano',
-                'p90_utilizacao', 'delta_utilizacao', 'utilizacao_tendencia_90d', 'dias_acima_80pct_limite']
+FEATURE_COLS = FEATURE_NAMES
 
 @app.route('/prever_falha', methods=['POST'])
 def prever_falha():
@@ -48,11 +53,7 @@ def prever_falha():
     if not data:
         return jsonify({'error': 'Nenhum dado fornecido'}), 400
     
-    required_features = ['idade_dias', 'num_manutencoes', 'intervalo_medio_manut',
-                         'num_falhas_historico', 'taxa_falhas_ano', 'minutos_falha_historico',
-                         'taxa_minutos_falha_ano', 'dias_desde_ultima_manut', 'limite_potencia',
-                         'utilizacao_media', 'utilizacao_maxima', 'utilizacao_minima', 'utilizacao_desvio', 'taxa_sobrecargas_ano',
-                         'p90_utilizacao', 'delta_utilizacao', 'utilizacao_tendencia_90d', 'dias_acima_80pct_limite']
+    required_features = FEATURE_COLS
     required = ['id_equipamento'] + required_features
     missing = [f for f in required if f not in data]
     if missing:
@@ -64,10 +65,18 @@ def prever_falha():
         return jsonify({'error': f'Erro ao processar features: {str(e)}'}), 400
     
     tipo_modelo = data.get('modelo', 'rf')
-    if tipo_modelo not in TIPOS_MODELO or not modelos[tipo_modelo]:
+    if tipo_modelo not in TIPOS_MODELO:
         return jsonify({'error': f"Modelo '{tipo_modelo}' não disponível. Use: {TIPOS_MODELO}"}), 400
+    if tipo_modelo not in ('ensemble',) and not modelos[tipo_modelo]:
+        return jsonify({'error': f"Modelo '{tipo_modelo}' sem horizontes carregados."}), 400
 
-    periodos = data.get('periodos', sorted(modelos[tipo_modelo].keys()))
+    # Para ensemble, usa os períodos que têm AMBOS rf e xgb disponíveis
+    if tipo_modelo == 'ensemble':
+        periodos_ensemble = sorted(set(modelos['rf'].keys()) & set(modelos['xgb'].keys()))
+        periodos = data.get('periodos', periodos_ensemble)
+    else:
+        periodos = data.get('periodos', sorted(modelos[tipo_modelo].keys()))
+
     estrategia = data.get('estrategia_threshold', 'f1_max')
     estrategia_col = {
         'padrao': 'threshold_padrao',
@@ -78,21 +87,29 @@ def prever_falha():
     previsoes = []
 
     for periodo in periodos:
-        if periodo not in modelos[tipo_modelo]:
-            continue
-
-        modelo = modelos[tipo_modelo][periodo]
-        proba = modelo.predict_proba(X)[0][1]
-        thr = thresholds[tipo_modelo].get(periodo, {}).get(estrategia_col, 0.5)
-        predicao = int(proba >= thr)
-
-        # Incerteza: RF usa árvores individuais; XGBoost não tem estimators_
-        if tipo_modelo == 'rf':
-            tree_preds = np.array([t.predict_proba(X)[0][1] for t in modelo.estimators_])
-            std = float(tree_preds.std())
+        if tipo_modelo == 'ensemble':
+            if periodo not in modelos['rf'] or periodo not in modelos['xgb']:
+                continue
+            proba_rf  = modelos['rf'][periodo].predict_proba(X)[0][1]
+            proba_xgb = modelos['xgb'][periodo].predict_proba(X)[0][1]
+            proba = (proba_rf + proba_xgb) / 2.0
+            # Incerteza: std entre as probabilidades dos dois modelos base
+            std = float(np.std([proba_rf, proba_xgb]))
+            thr = thresholds['ensemble'].get(periodo, {}).get(estrategia_col, 0.5)
         else:
-            std = 0.0
+            if periodo not in modelos[tipo_modelo]:
+                continue
+            modelo = modelos[tipo_modelo][periodo]
+            proba = modelo.predict_proba(X)[0][1]
+            thr = thresholds[tipo_modelo].get(periodo, {}).get(estrategia_col, 0.5)
+            # RF expõe estimators_ individuais; rf_cal (CalibratedClassifierCV) não
+            if tipo_modelo == 'rf' and hasattr(modelo, 'estimators_'):
+                tree_preds = np.array([t.predict_proba(X)[0][1] for t in modelo.estimators_])
+                std = float(tree_preds.std())
+            else:
+                std = 0.0
 
+        predicao = int(proba >= thr)
         previsoes.append({
             'periodo_dias': periodo,
             'modelo': tipo_modelo,
@@ -121,13 +138,18 @@ def health():
 @app.route('/info', methods=['GET'])
 def info():
     return jsonify({
-        'modelos_disponiveis': TIPOS_MODELO,
+        'modelos_disponiveis': {
+            'rf':      'Random Forest (base)',
+            'xgb':     'XGBoost',
+            'rf_cal':  'Random Forest calibrado (CalibratedClassifierCV — probabilidades mais confiáveis)',
+            'ensemble': 'Média RF + XGBoost (melhor AUC médio: 0.671)'
+        },
         'periodos_disponiveis': sorted(modelos['rf'].keys()),
         'features_requeridas': FEATURE_COLS,
         'estrategias_threshold': {
             'padrao': 'threshold fixo 0.5',
             'f1_max': 'maximiza F1-Score (padrão) — recall médio ~44%',
-            'recall_minimo': 'recall mínimo 50% — maior sensibilidade'
+            'recall_minimo': 'recall minimo 50% — maior sensibilidade'
         },
         'exemplo_request': {
             'id_equipamento': 'TR-001',

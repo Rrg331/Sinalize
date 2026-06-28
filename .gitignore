@@ -2,8 +2,9 @@
 models/*.pkl
 
 # Dados processados
-gold/*.csv
- 
+gold/*
+data/raw/utilizacao_transformadores
+
 # Python
 __pycache__/
 *.py[cod]

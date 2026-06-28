@@ -1,0 +1,85 @@
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix ons: <http://ons.org.br/ontology#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ons:transformadores_csv a prov:Entity ;
+    rdfs:label "transformadores" ;
+    prov:atLocation "data/raw/transformadores.csv" ;
+    ons:source "Dados Públicos ONS" ;
+    ons:description "Dados cadastrais dos transformadores" .
+
+ons:manutencao_csv a prov:Entity ;
+    rdfs:label "manutencao" ;
+    prov:atLocation "data/raw/manutencao.csv" ;
+    ons:source "Sistema SATRA ONS" ;
+    ons:description "Histórico de manutenções do SATRA e SAM, sistemas internos do ONS." .
+
+ons:falhas_csv a prov:Entity ;
+    rdfs:label "falhas" ;
+    prov:atLocation "data/raw/falhas.csv" ;
+    ons:source "Sistemas Internos ONS" ;
+    ons:description "Histórico de falhas" .
+
+ons:utilizacao_csv a prov:Entity ;
+    rdfs:label "utilizacao_transformadores" ;
+    prov:atLocation "data/raw/utilizacao_transformadores/" ;
+    ons:source "REGER - Sistema de Supervisão e Controle" ;
+    ons:description "Dados de utilização dos transformadores" .
+
+ons:features_preditivo_XXd a prov:Entity ;
+    rdfs:label "features_preditivo_XXd.csv" ;
+    prov:atLocation "data/gold/features_preditivo_XXd.csv" ;
+    ons:description "Features engenheiradas para janela de XX dias, gerados através do processo de ETL e as entidades RAW abaixo" ;
+    prov:wasGeneratedBy ons:preparacao_dados ;
+    prov:wasDerivedFrom ons:transformadores_csv, ons:manutencao_csv, ons:falhas_csv, ons:utilizacao_csv .
+
+ons:modelo_preditivo_XXd a prov:Entity ;
+    rdfs:label "preditivo_XXd.pkl" ;
+    prov:atLocation "models/rf/preditivo_XXd.pkl" ;
+    ons:modelType "Random Forest" ;
+    ons:description "Modelo preditivo de risco de falha treinado para XX dias" ;
+    prov:wasGeneratedBy ons:treinamento_modelo ;
+    prov:wasDerivedFrom ons:features_preditivo_XXd .
+
+ons:preparacao_dados a prov:Activity ;
+    rdfs:label "Preparação de Dados" ;
+    prov:startedAtTime "2024-01-01T00:00:00Z"^^xsd:dateTime ;
+    ons:script "01-preparar-dados-preditivo.py" ;
+    prov:used ons:transformadores_csv, ons:manutencao_csv, ons:falhas_csv, ons:utilizacao_csv ;
+    ons:description "Engenharia de features e preparação dos dados" .
+
+ons:treinamento_modelo a prov:Activity ;
+    rdfs:label "Treinamento do Modelo" ;
+    ons:script "02-treinar-modelo-preditivo.py" ;
+    ons:algorithm "Random Forest Classifier" ;
+    ons:janela_temporal "55 dias" ;
+    prov:used ons:features_preditivo_XXd ;
+    prov:wasInformedBy ons:preparacao_dados ;
+    ons:description "Treinamento do modelo de classificação de risco" .
+
+ons:predicao_risco a prov:Activity ;
+    rdfs:label "Predição de Risco" ;
+    ons:script "03-api-teste-modelo.py" ;
+    prov:used ons:modelo_preditivo_55d, ons:features_preditivo_55d ;
+    prov:wasInformedBy ons:treinamento_modelo ;
+    ons:description "Geração do ranking de risco dos equipamentos" .
+
+ons:cientista_dados a prov:Agent, prov:Person ;
+    rdfs:label "Analista de IA do ONS" ;
+    ons:organization "ONS" .
+
+ons:sistema_ons a prov:Agent, prov:SoftwareAgent ;
+    rdfs:label "Sistemas Internos ONS" .
+
+ons:reger a prov:Agent, prov:SoftwareAgent ;
+    rdfs:label "REGER" ;
+    ons:description "Sistema de Supervisão e Controle" .
+
+ons:preparacao_dados prov:wasAssociatedWith ons:cientista_dados .
+ons:treinamento_modelo prov:wasAssociatedWith ons:cientista_dados .
+ons:predicao_risco prov:wasAssociatedWith ons:cientista_dados .
+
+ons:manutencao_csv prov:wasAttributedTo ons:sistema_ons .
+ons:falhas_csv prov:wasAttributedTo ons:sistema_ons .
+ons:utilizacao_csv prov:wasAttributedTo ons:reger .
