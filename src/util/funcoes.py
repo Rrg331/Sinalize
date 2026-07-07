@@ -41,58 +41,46 @@ def obterdadosraw():
 
     return falhas, manutencao, transformadores, utilizacao, limites 
 
-def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, janela_previsao):   
+def criarfeatures(falhas, manutencao, transformadores, utilizacao, limites, janela_previsao):
 
-    
     #considerando somente equipamentos que tiveram pelo menos uma manutenção na janela de dados
     equipamentos = manutencao['id_equipamento'].unique()
-    
+
     features_list = []
 
     data_maxima_dados = max(falhas['inicio'].max(), manutencao['inicio'].max())
-
     data_referencia = data_maxima_dados - timedelta(days=janela_previsao)
 
     print(f'Calculando features para previsão de falhas em {janela_previsao} dias a partir de {data_referencia.date()} até: {data_maxima_dados.date()} ')
 
-    
     for equip_id in equipamentos:
-        print('Features.... Processando equipamento:', equip_id  )
+        print('Features.... Processando equipamento:', equip_id)
 
         #region dados transformador
-        trafo = transformadores[transformadores['id_equipamento'] == equip_id]        
-        trafo = trafo.iloc[0] 
+        trafo = transformadores[transformadores['id_equipamento'] == equip_id]
+        trafo = trafo.iloc[0]
         idade = (data_referencia - trafo['data_entrada_operacao']).days
 
-        limite = limites[limites['id_equipamento'] == equip_id] 
-
+        limite = limites[limites['id_equipamento'] == equip_id]
         limite = limite.iloc[0] if not limite.empty else None
         limite_pot = limite['limite'] if limite is not None else 0
-
-        
-
         #endregion
-  
-        #region features manutencao 
+
+        #region features manutenção
         manut_equip = manutencao[
             (manutencao['id_equipamento'] == equip_id) &
             (manutencao['inicio'] < data_referencia)
         ]
-
         num_manutencoes = len(manut_equip)
 
-        
         if num_manutencoes > 1:
             manut_sorted = manut_equip.sort_values('inicio')
             intervalos = manut_sorted['inicio'].diff().dt.days.dropna()
-            intervalo_medio = intervalos.mean() 
+            intervalo_medio = intervalos.mean()
         else:
             intervalo_medio = 0
 
-
-        
         ultima_manut = manut_equip['inicio'].max()
-
         if pd.isna(ultima_manut):
             dias_desde_manut = 0
         else:
@@ -100,60 +88,46 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
             if dias_desde_manut < 0:
                 dias_desde_manut = 0
 
-
         #endregion
 
-        #region features  falhas 
+        #region features falhas
         falhas_historicas = falhas[
             (falhas['id_equipamento'] == equip_id) &
             (falhas['inicio'] < data_referencia)
         ]
-
         num_falhas = len(falhas_historicas)
         minutos_falha = falhas_historicas['duracao'].sum()
 
         ultima_falha = falhas_historicas['inicio'].max()
         if pd.isna(ultima_falha):
-            dias_desde_falha = -1  # -1 indica que nunca falhou
+            dias_desde_falha = -1
         else:
             dias_desde_falha = (data_referencia - ultima_falha).days
             if dias_desde_falha < 0:
                 dias_desde_falha = 0
 
-        if idade > 0 :
+        if idade > 0:
             taxa_falhas = num_falhas / (idade / 365)
             taxa_minutos_falha = minutos_falha / (idade / 365)
-
         else:
             taxa_falhas = 0
             taxa_minutos_falha = 0
-
 
         falhasjanela = falhas[
             (falhas['id_equipamento'] == equip_id) &
             (falhas['inicio'] >= data_referencia) &
             (falhas['inicio'] <= data_maxima_dados)
         ]
-
         vai_falhar = 1 if len(falhasjanela) > 0 else 0
-
         #endregion
 
-        
         #region features utilização
-
-
         dfutilizacao = utilizacao.get(equip_id)
-
         if dfutilizacao is None or dfutilizacao.empty:
-            print('Aviso: Dados de utilização não encontrados para o equipamento:', equip_id    )
+            print('Aviso: Dados de utilização não encontrados para o equipamento:', equip_id)
             continue
 
-
-        dadosutilizacao = dfutilizacao[
-            (dfutilizacao['timestamp'] < data_referencia)
-        ]
-
+        dadosutilizacao = dfutilizacao[dfutilizacao['timestamp'] < data_referencia]
         medidas = dadosutilizacao['valor']
 
         if limite_pot > 0:
@@ -163,21 +137,18 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
 
         taxa_sobrecargas = sobrecargas / (idade / 365) if idade > 0 else 0
 
-        # --- Features de tendência ---
+        # Features de tendência
         ultimos_90d = dadosutilizacao[
             dadosutilizacao['timestamp'] >= (data_referencia - timedelta(days=90))
         ]
 
-        # p90: percentil 90 da utilização histórica
         p90_util = float(np.percentile(medidas, 90)) if len(medidas) > 0 else 0.0
 
-        # delta: média recente (últimos 90d) vs média histórica
         if len(ultimos_90d) > 0 and len(medidas) > 0:
             delta_util = float(ultimos_90d['valor'].mean() - medidas.mean())
         else:
             delta_util = 0.0
 
-        # tendência: inclinação da regressão linear nos últimos 90 dias
         if len(ultimos_90d) >= 2:
             t0 = ultimos_90d['timestamp'].min()
             x_trend = (ultimos_90d['timestamp'] - t0).dt.days.values.astype(float)
@@ -186,7 +157,6 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
         else:
             tendencia = 0.0
 
-        # dias acima de 80% do limite (média diária)
         if limite_pot > 0 and len(dadosutilizacao) > 0:
             daily_mean = dadosutilizacao.copy()
             daily_mean['data'] = daily_mean['timestamp'].dt.date
@@ -195,7 +165,7 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
         else:
             dias_acima_80 = 0
 
-        features_utilizacao =  {
+        features_utilizacao = {
             'utilizacao_media': medidas.mean() if len(medidas) > 0 else 0,
             'utilizacao_maxima': medidas.max() if len(medidas) > 0 else 0,
             'utilizacao_minima': medidas.min() if len(medidas) > 0 else 0,
@@ -207,9 +177,8 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
             'dias_acima_80pct_limite': dias_acima_80,
             'dias_com_dados_util': len(dadosutilizacao['timestamp'].dt.date.unique())
         }
-
         #endregion
-        
+
         features = {
             'id_equipamento': equip_id,
             'idade_dias': idade,
@@ -235,10 +204,9 @@ def criarfeatures(falhas, manutencao, transformadores, utilizacao , limites, jan
             'vai_falhar': vai_falhar
         }
 
-         
         features_list.append(features)
-        print(f'Features do equipamento {equip_id} calculadas com sucesso!' )
-    
+        print(f'Features do equipamento {equip_id} calculadas com sucesso!')
+
     return pd.DataFrame(features_list)
 
 def carregar_dados_utilizacao():

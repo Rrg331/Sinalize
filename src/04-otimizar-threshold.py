@@ -3,6 +3,7 @@ import numpy as np
 import joblib
 import sys
 from sklearn.model_selection import train_test_split
+from util.config import PERIODOS, FEATURE_NAMES
 from sklearn.metrics import (precision_recall_curve, roc_auc_score,
                              precision_score, recall_score, f1_score)
 
@@ -11,18 +12,12 @@ from sklearn.metrics import (precision_recall_curve, roc_auc_score,
 args = [a for a in sys.argv[1:] if a]
 periodos_arg = next((a for a in args if a[0].isdigit()), None)
 modelo_tipo  = next((a for a in args if a in ('rf', 'xgb')), 'rf')
-periodos = [int(d) for d in periodos_arg.split(',')] if periodos_arg else [30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90]
+periodos = [int(d) for d in periodos_arg.split(',')] if periodos_arg else PERIODOS
+feature_names = FEATURE_NAMES
 
 MODELS_DIR = f'../models/{modelo_tipo}'
 OUTPUT_CSV = f'../data/gold/thresholds_{modelo_tipo}.csv'
 RECALL_MINIMO = 0.50
-
-feature_names = ['idade_dias', 'num_manutencoes', 'intervalo_medio_manut',
-                 'num_falhas_historico', 'taxa_falhas_ano', 'minutos_falha_historico',
-                 'taxa_minutos_falha_ano', 'dias_desde_ultima_falha', 'dias_desde_ultima_manut', 'limite_potencia',
-                 'utilizacao_media', 'utilizacao_maxima', 'utilizacao_minima',
-                 'utilizacao_desvio', 'taxa_sobrecargas_ano',
-                 'p90_utilizacao', 'delta_utilizacao', 'utilizacao_tendencia_90d', 'dias_acima_80pct_limite']
 
 resultados = []
 

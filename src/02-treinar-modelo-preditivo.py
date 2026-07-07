@@ -8,20 +8,13 @@ import sys
 import numpy as np
 import gc
 import os
+from util.config import PERIODOS, FEATURE_NAMES
 
 MODELS_DIR = '../models/rf'
 os.makedirs(MODELS_DIR, exist_ok=True)
 
-if len(sys.argv) > 1:
-    periodos = [int(d) for d in sys.argv[1].split(',')]
-else:
-    periodos = [30,35,40,45,50, 55, 60,65,70,75,80,85,90]
-
-feature_names = ['idade_dias', 'num_manutencoes', 'intervalo_medio_manut',
-                 'num_falhas_historico', 'taxa_falhas_ano', 'minutos_falha_historico', 'taxa_minutos_falha_ano',
-                 'dias_desde_ultima_falha', 'dias_desde_ultima_manut', 'limite_potencia',
-                 'utilizacao_media', 'utilizacao_maxima', 'utilizacao_minima', 'utilizacao_desvio', 'taxa_sobrecargas_ano',
-                 'p90_utilizacao', 'delta_utilizacao', 'utilizacao_tendencia_90d', 'dias_acima_80pct_limite']
+periodos = [int(d) for d in sys.argv[1].split(',')] if len(sys.argv) > 1 else PERIODOS
+feature_names = FEATURE_NAMES
 
 resultados = []
 resumo_dados = []
@@ -37,7 +30,6 @@ for periodo in periodos:
     df_original = len(df)
     df = df[df['dias_com_dados_util'] > 0]
     print(f"Equipamentos: {df_original} -> {len(df)} (removidos {df_original - len(df)} sem dados)")
-    
     X = df[feature_names]
     y = df['vai_falhar']
     
