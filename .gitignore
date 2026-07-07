@@ -1,5 +1,3 @@
-# Modelos treinados
-models/*.pkl
 
 # Dados processados
 gold/*
@@ -13,6 +11,8 @@ __pycache__/
 .Python
 env/
 venv/
+.env
+
 
 # IDE
 .vscode/
@@ -27,3 +27,4 @@ Thumbs.db
 
 # word
 *.docm
+*.docx
